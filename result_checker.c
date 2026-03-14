@@ -3,14 +3,17 @@
 #include <stdbool.h>
 #include <string.h>
 
-#define TEST_COUNT 14
+#define TEST_COUNT 29
 
 // test names
 const char *tests[TEST_COUNT] = {
     "addlarge", "addneg", "addpos", "bool",
     "branchcnt", "branchmany", "branchtrap",
     "loop", "recursive", "set",
-    "shift", "shift2", "string", "width"
+    "shift", "shift2", "string", "width",
+    "t1", "t2", "t3", "t4", "t5",
+    "t6", "t7", "t8", "t9", "t10",
+    "t11", "t12", "t13", "t14", "t15"
 };
 
 bool compare_files(const char *file1, const char *file2) {

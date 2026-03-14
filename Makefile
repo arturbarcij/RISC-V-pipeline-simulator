@@ -1,29 +1,27 @@
-#Define the compiler
+# RISC-V 5-Stage Pipeline Simulator
 
 CC = gcc
-
-# Compiler flags
 CFLAGS = -Wall -g
 
-# Source files
-SRC = main.c src/memory.c src/*instructions.c 
-#src/u_instructions.c src/instructions.c src/uj_instructions.c src/i_instructions.c
-
-# Output
+SRC = main.c src/memory.c src/pipeline.c
 OUTPUT = program
 
-# Default rule to build the program
 all: $(OUTPUT)
 
-# Link everything together
-$(OUTPUT): $(SRC)
+$(OUTPUT): $(SRC) src/pipeline.h src/memory.h
 	$(CC) $(CFLAGS) -o $(OUTPUT) $(SRC)
 
-# Clean up build files
+checker: result_checker.c
+	$(CC) $(CFLAGS) -o checker result_checker.c
+
 clean:
-	rm -f $(OUTPUT)
+	rm -f $(OUTPUT) checker
 
-# Run the program
 run: all
-	./$(OUTPUT) 
+	./$(OUTPUT)
 
+test: all checker
+	@for f in test_files/T1/*.bin test_files/T2/*.bin test_files/T3/*.bin test_files/T4/*.bin; do \
+		./$(OUTPUT) "$$f" > /dev/null 2>&1; \
+	done
+	./checker
