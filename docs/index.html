@@ -73,6 +73,40 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
   </div>
 </div>
 
+<!-- Single-test focused result (hidden by default) -->
+<div id="focusPanel" style="display:none;max-width:900px;margin:0 auto 20px;padding:0 20px">
+  <div class="card" style="border-color:#60a5fa;border-width:2px">
+    <h2 style="color:#60a5fa;font-size:18px;font-weight:700" id="focusTitle">Test Result</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:16px">
+      <div style="background:#0f1117;border-radius:8px;padding:16px">
+        <div style="color:#71717a;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Single-Cycle</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div><span style="color:#71717a;font-size:11px">Cycles</span><div style="font-size:24px;font-weight:700;color:#60a5fa" id="focusSCcyc">-</div></div>
+          <div><span style="color:#71717a;font-size:11px">Instructions</span><div style="font-size:24px;font-weight:700;color:#60a5fa" id="focusSCinstr">-</div></div>
+          <div><span style="color:#71717a;font-size:11px">CPI</span><div style="font-size:24px;font-weight:700;color:#34d399" id="focusSCcpi">-</div></div>
+          <div><span style="color:#71717a;font-size:11px">Hazards</span><div style="font-size:24px;font-weight:700;color:#34d399">0</div></div>
+        </div>
+      </div>
+      <div style="background:#0f1117;border-radius:8px;padding:16px">
+        <div style="color:#71717a;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">5-Stage Pipeline</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <div><span style="color:#71717a;font-size:11px">Cycles</span><div style="font-size:24px;font-weight:700;color:#a78bfa" id="focusPLcyc">-</div></div>
+          <div><span style="color:#71717a;font-size:11px">Instructions</span><div style="font-size:24px;font-weight:700;color:#a78bfa" id="focusPLinstr">-</div></div>
+          <div><span style="color:#71717a;font-size:11px">CPI</span><div style="font-size:24px;font-weight:700" id="focusPLcpi" style="color:#fbbf24">-</div></div>
+          <div><span style="color:#71717a;font-size:11px">Overhead</span><div style="font-size:24px;font-weight:700" id="focusOverhead">-</div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+          <div><span style="color:#71717a;font-size:11px">Stalls</span><div style="font-size:20px;font-weight:700;color:#f87171" id="focusStalls">-</div></div>
+          <div><span style="color:#71717a;font-size:11px">Flushes</span><div style="font-size:20px;font-weight:700;color:#fbbf24" id="focusFlushes">-</div></div>
+        </div>
+      </div>
+    </div>
+    <div style="text-align:center;margin-top:12px">
+      <div style="display:inline-block;background:#0f1117;border-radius:8px;padding:8px 20px" id="focusVerdict"></div>
+    </div>
+  </div>
+</div>
+
 <!-- Summary Stats -->
 <div style="max-width:1400px;margin:0 auto;padding:0 20px">
   <div class="stats-grid" id="summaryStats">
@@ -713,6 +747,42 @@ function runTest(name) {
     return { name, sc, pl };
 }
 
+function showFocusPanel(r) {
+    const panel = document.getElementById('focusPanel');
+    panel.style.display = 'block';
+    document.getElementById('focusTitle').textContent = r.name;
+    document.getElementById('focusSCcyc').textContent = r.sc.cycles.toLocaleString();
+    document.getElementById('focusSCinstr').textContent = r.sc.instructions.toLocaleString();
+    document.getElementById('focusSCcpi').textContent = '1.00';
+    document.getElementById('focusPLcyc').textContent = r.pl.cycles.toLocaleString();
+    document.getElementById('focusPLinstr').textContent = r.pl.instructions.toLocaleString();
+    const cpiEl = document.getElementById('focusPLcpi');
+    cpiEl.textContent = r.pl.cpi.toFixed(2);
+    cpiEl.style.color = r.pl.cpi <= 1.2 ? '#34d399' : r.pl.cpi <= 1.6 ? '#a78bfa' : r.pl.cpi <= 2.0 ? '#fbbf24' : '#f87171';
+    const overhead = ((r.pl.cycles / r.sc.cycles - 1) * 100).toFixed(0);
+    const ovEl = document.getElementById('focusOverhead');
+    ovEl.textContent = '+' + overhead + '%';
+    ovEl.style.color = overhead > 50 ? '#f87171' : '#fbbf24';
+    document.getElementById('focusStalls').textContent = r.pl.stalls.toLocaleString();
+    document.getElementById('focusFlushes').textContent = r.pl.flushes.toLocaleString();
+    // Verdict
+    const exp = EXPECTED[r.name];
+    let verdictHtml = '';
+    if (exp) {
+        const pass = exp.instructions === r.pl.instructions && exp.cycles === r.pl.cycles && exp.stalls === r.pl.stalls && exp.flushes === r.pl.flushes && Math.abs(exp.cpi - r.pl.cpi) < 0.015;
+        verdictHtml = pass ? '<span style="color:#34d399;font-weight:700;font-size:16px">&#10003; PASS</span> <span style="color:#71717a;font-size:12px">— matches expected output</span>' : '<span style="color:#f87171;font-weight:700;font-size:16px">&#10007; FAIL</span>';
+    } else {
+        verdictHtml = '<span style="color:#71717a;font-size:13px">No validation data for this test</span>';
+    }
+    document.getElementById('focusVerdict').innerHTML = verdictHtml;
+    // Scroll to focus panel
+    panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function hideFocusPanel() {
+    document.getElementById('focusPanel').style.display = 'none';
+}
+
 function runSelected() {
     const name = document.getElementById('testSelect').value;
     setStatus('Running ' + name + '...');
@@ -723,12 +793,14 @@ function runSelected() {
         if (idx >= 0) allResults[idx] = r; else allResults.push(r);
         allResults.sort((a,b) => a.name.localeCompare(b.name));
         updateDashboard();
-        setStatus('Completed: ' + name + ' -- Pipeline CPI=' + r.pl.cpi.toFixed(2));
+        showFocusPanel(r);
+        setStatus('Completed: ' + name + ' — Pipeline CPI=' + r.pl.cpi.toFixed(2) + ', Stalls=' + r.pl.stalls + ', Flushes=' + r.pl.flushes);
     }, 10);
 }
 
 function runAllBenchmarks() {
     setStatus('Running all benchmarks...');
+    hideFocusPanel();
     animatePipeline();
     setTimeout(() => {
         allResults = [];
