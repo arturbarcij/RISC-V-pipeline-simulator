@@ -20,11 +20,16 @@ uint32_t pc = 0;
 uint32_t x[REG_COUNT];
 
 int main(int argc, char *argv[]) {
-    printf("RISC-V 32 Pipelined C Simulator!\n");
+    bool json_mode = false;
+
+    if (argc >= 3 && strcmp(argv[2], "--json") == 0)
+        json_mode = true;
+
+    if (!json_mode)
+        printf("RISC-V 32 Pipelined C Simulator!\n");
 
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s <file_path>\n", argv[0]);
-        fprintf(stderr, "Execute a binary file with RISC-V instructions!\n");
+        fprintf(stderr, "Usage: %s <file_path> [--json]\n", argv[0]);
         return EXIT_FAILURE;
     }
 
@@ -32,17 +37,18 @@ int main(int argc, char *argv[]) {
     pc = 0;
 
     uint32_t count = load_file(argv[1], memory);
-    if (count == 0xFFFFFFFF) {
-        printf("Error from load_file() received\n");
-        return EXIT_FAILURE;
-    }
+    if (count == 0xFFFFFFFF) return EXIT_FAILURE;
 
-    run_pipeline();
+    PipelineStats stats = run_pipeline();
 
-    /* Ensure x[0] is 0 */
     x[0] = 0;
-
     bin_dump_registers(x, REG_COUNT, argv[1]);
+
+    if (json_mode) {
+        fprintf(stdout,
+            "{\"instructions\":%u,\"cycles\":%u,\"stalls\":%u,\"flushes\":%u,\"cpi\":%.2f}\n",
+            stats.instructions, stats.cycles, stats.stalls, stats.flushes, stats.cpi);
+    }
 
     return 0;
 }

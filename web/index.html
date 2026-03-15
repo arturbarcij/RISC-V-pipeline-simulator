@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RISC-V Pipeline Benchmark Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: #0f1117;
+            color: #e4e4e7;
+            min-height: 100vh;
+        }
+        .header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border-bottom: 1px solid #2d2d3f;
+            padding: 24px 40px;
+        }
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(90deg, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .header p { color: #9ca3af; margin-top: 4px; font-size: 14px; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 24px 40px; }
+
+        /* Summary cards */
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+        .card {
+            background: #1a1a2e;
+            border: 1px solid #2d2d3f;
+            border-radius: 12px;
+            padding: 20px;
+        }
+        .card-label { font-size: 12px; text-transform: uppercase; color: #6b7280; letter-spacing: 1px; }
+        .card-value { font-size: 32px; font-weight: 700; margin-top: 4px; }
+        .card-value.blue { color: #60a5fa; }
+        .card-value.purple { color: #a78bfa; }
+        .card-value.green { color: #34d399; }
+        .card-value.amber { color: #fbbf24; }
+        .card-value.red { color: #f87171; }
+        .card-sub { font-size: 12px; color: #6b7280; margin-top: 4px; }
+
+        /* Charts */
+        .chart-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-bottom: 32px;
+        }
+        .chart-card {
+            background: #1a1a2e;
+            border: 1px solid #2d2d3f;
+            border-radius: 12px;
+            padding: 24px;
+        }
+        .chart-card.full { grid-column: 1 / -1; }
+        .chart-card h3 { font-size: 16px; margin-bottom: 16px; color: #d1d5db; }
+        .chart-container { position: relative; height: 320px; }
+        .chart-container.tall { height: 400px; }
+
+        /* Run interface */
+        .run-section {
+            background: #1a1a2e;
+            border: 1px solid #2d2d3f;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 32px;
+        }
+        .run-section h3 { font-size: 18px; margin-bottom: 16px; }
+        .run-controls {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        select {
+            background: #0f1117;
+            color: #e4e4e7;
+            border: 1px solid #3f3f5f;
+            border-radius: 8px;
+            padding: 10px 16px;
+            font-size: 14px;
+            min-width: 240px;
+        }
+        button {
+            background: linear-gradient(135deg, #3b82f6, #7c3aed);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 10px 24px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        button:hover { opacity: 0.9; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-all {
+            background: linear-gradient(135deg, #059669, #10b981);
+        }
+
+        /* Results table */
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+            font-size: 14px;
+        }
+        .results-table th {
+            text-align: left;
+            padding: 10px 12px;
+            background: #16213e;
+            color: #9ca3af;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid #2d2d3f;
+        }
+        .results-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #1e1e30;
+        }
+        .results-table tr:hover { background: #16213e; }
+        .tag {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .tag-t1 { background: #1e3a5f; color: #60a5fa; }
+        .tag-t2 { background: #3b1f5e; color: #a78bfa; }
+        .tag-t3 { background: #1a3a2a; color: #34d399; }
+        .tag-t4 { background: #3a2a1a; color: #fbbf24; }
+
+        .spinner {
+            display: inline-block;
+            width: 16px; height: 16px;
+            border: 2px solid #3f3f5f;
+            border-top-color: #60a5fa;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .pipeline-diagram {
+            display: flex;
+            justify-content: center;
+            gap: 0;
+            margin: 16px 0;
+            flex-wrap: wrap;
+        }
+        .stage-box {
+            background: linear-gradient(135deg, #1e3a5f, #16213e);
+            border: 1px solid #3b82f6;
+            border-radius: 8px;
+            padding: 12px 20px;
+            text-align: center;
+            min-width: 100px;
+        }
+        .stage-box .stage-name { font-weight: 700; color: #60a5fa; font-size: 16px; }
+        .stage-box .stage-desc { font-size: 11px; color: #9ca3af; margin-top: 2px; }
+        .stage-arrow {
+            display: flex;
+            align-items: center;
+            color: #4b5563;
+            font-size: 24px;
+            padding: 0 4px;
+        }
+
+        @media (max-width: 900px) {
+            .chart-grid { grid-template-columns: 1fr; }
+            .container { padding: 16px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>RISC-V Pipeline Benchmark Dashboard</h1>
+        <p>Comparing Single-Cycle vs 5-Stage Pipeline RV32I Simulator</p>
+    </div>
+
+    <div class="container">
+        <!-- Pipeline diagram -->
+        <div class="chart-card full" style="margin-bottom: 24px">
+            <h3>5-Stage Pipeline Architecture</h3>
+            <div class="pipeline-diagram">
+                <div class="stage-box"><div class="stage-name">IF</div><div class="stage-desc">Fetch</div></div>
+                <div class="stage-arrow">&#8594;</div>
+                <div class="stage-box"><div class="stage-name">ID</div><div class="stage-desc">Decode</div></div>
+                <div class="stage-arrow">&#8594;</div>
+                <div class="stage-box"><div class="stage-name">EX</div><div class="stage-desc">Execute</div></div>
+                <div class="stage-arrow">&#8594;</div>
+                <div class="stage-box"><div class="stage-name">MEM</div><div class="stage-desc">Memory</div></div>
+                <div class="stage-arrow">&#8594;</div>
+                <div class="stage-box"><div class="stage-name">WB</div><div class="stage-desc">Writeback</div></div>
+            </div>
+            <div style="text-align:center; margin-top:8px; font-size:12px; color:#6b7280;">
+                Data Forwarding (EX&#8594;EX, MEM&#8594;EX) &bull; Load-Use Stall Detection &bull; Branch Flush (2-cycle penalty)
+            </div>
+        </div>
+
+        <!-- Summary cards -->
+        <div class="summary-grid" id="summary-cards"></div>
+
+        <!-- Charts -->
+        <div class="chart-grid">
+            <div class="chart-card">
+                <h3>Cycles: Single-Cycle vs Pipeline</h3>
+                <div class="chart-container"><canvas id="cyclesChart"></canvas></div>
+            </div>
+            <div class="chart-card">
+                <h3>CPI Comparison</h3>
+                <div class="chart-container"><canvas id="cpiChart"></canvas></div>
+            </div>
+            <div class="chart-card">
+                <h3>Pipeline Hazard Breakdown</h3>
+                <div class="chart-container"><canvas id="hazardChart"></canvas></div>
+            </div>
+            <div class="chart-card">
+                <h3>Overhead Distribution</h3>
+                <div class="chart-container"><canvas id="overheadChart"></canvas></div>
+            </div>
+            <div class="chart-card full">
+                <h3>Instructions vs Cycles (All Tests)</h3>
+                <div class="chart-container tall"><canvas id="scatterChart"></canvas></div>
+            </div>
+        </div>
+
+        <!-- Run interface -->
+        <div class="run-section">
+            <h3>Run Simulator</h3>
+            <p style="color:#9ca3af; font-size:13px; margin-bottom:12px;">
+                Select a test binary and run both simulators to compare results in real-time.
+            </p>
+            <div class="run-controls">
+                <select id="testSelect">
+                    <option value="">Loading tests...</option>
+                </select>
+                <button id="runBtn" onclick="runSelectedTest()">Run Test</button>
+                <button id="runAllBtn" class="btn-all" onclick="runAllTests()">Run All Tests</button>
+                <span id="runStatus"></span>
+            </div>
+        </div>
+
+        <!-- Results table -->
+        <div class="chart-card full">
+            <h3>Detailed Results</h3>
+            <div style="overflow-x:auto;">
+                <table class="results-table" id="resultsTable">
+                    <thead>
+                        <tr>
+                            <th>Test</th>
+                            <th>Category</th>
+                            <th>Instructions</th>
+                            <th>Single Cycles</th>
+                            <th>Pipeline Cycles</th>
+                            <th>Stalls</th>
+                            <th>Flushes</th>
+                            <th>CPI</th>
+                            <th>Overhead</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    let benchmarkData = [];
+    let charts = {};
+
+    const COLORS = {
+        single: '#60a5fa',
+        pipeline: '#a78bfa',
+        stalls: '#f87171',
+        flushes: '#fbbf24',
+        efficient: '#34d399',
+        overhead: '#fb923c'
+    };
+
+    async function loadBenchmarks() {
+        const res = await fetch('/api/benchmarks');
+        benchmarkData = await res.json();
+        renderAll();
+    }
+
+    async function loadTests() {
+        const res = await fetch('/api/tests');
+        const tests = await res.json();
+        const select = document.getElementById('testSelect');
+        select.innerHTML = '<option value="">-- Select a test --</option>';
+        for (const t of tests) {
+            const opt = document.createElement('option');
+            opt.value = t.path;
+            opt.textContent = `[${t.category}] ${t.name}`;
+            select.appendChild(opt);
+        }
+    }
+
+    function renderSummaryCards() {
+        const totalSingleCycles = benchmarkData.reduce((s, d) => s + d.single.cycles, 0);
+        const totalPipeCycles = benchmarkData.reduce((s, d) => s + d.pipeline.cycles, 0);
+        const totalInstr = benchmarkData.reduce((s, d) => s + d.pipeline.instructions, 0);
+        const totalStalls = benchmarkData.reduce((s, d) => s + d.pipeline.stalls, 0);
+        const totalFlushes = benchmarkData.reduce((s, d) => s + d.pipeline.flushes, 0);
+        const avgCPI = totalPipeCycles / totalInstr;
+
+        const cards = [
+            { label: 'Total Tests', value: benchmarkData.length, cls: 'blue', sub: 'T1-T4 test suites' },
+            { label: 'Avg Pipeline CPI', value: avgCPI.toFixed(2), cls: 'purple', sub: 'Single-cycle: 1.00' },
+            { label: 'Total Stalls', value: totalStalls.toLocaleString(), cls: 'red', sub: 'Load-use hazards' },
+            { label: 'Total Flushes', value: totalFlushes.toLocaleString(), cls: 'amber', sub: 'Branch/jump penalties' },
+            { label: 'Cycle Overhead', value: ((totalPipeCycles / totalSingleCycles - 1) * 100).toFixed(1) + '%', cls: 'amber', sub: `${totalPipeCycles.toLocaleString()} vs ${totalSingleCycles.toLocaleString()}` },
+        ];
+
+        document.getElementById('summary-cards').innerHTML = cards.map(c => `
+            <div class="card">
+                <div class="card-label">${c.label}</div>
+                <div class="card-value ${c.cls}">${c.value}</div>
+                <div class="card-sub">${c.sub}</div>
+            </div>
+        `).join('');
+    }
+
+    function renderCyclesChart() {
+        const ctx = document.getElementById('cyclesChart').getContext('2d');
+        if (charts.cycles) charts.cycles.destroy();
+
+        const labels = benchmarkData.map(d => d.name);
+        charts.cycles = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [
+                    {
+                        label: 'Single-Cycle',
+                        data: benchmarkData.map(d => d.single.cycles),
+                        backgroundColor: COLORS.single + '99',
+                        borderColor: COLORS.single,
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'Pipeline',
+                        data: benchmarkData.map(d => d.pipeline.cycles),
+                        backgroundColor: COLORS.pipeline + '99',
+                        borderColor: COLORS.pipeline,
+                        borderWidth: 1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { labels: { color: '#9ca3af' } } },
+                scales: {
+                    x: { ticks: { color: '#6b7280', maxRotation: 45 }, grid: { color: '#1e1e30' } },
+                    y: { ticks: { color: '#6b7280' }, grid: { color: '#1e1e30' }, title: { display: true, text: 'Cycles', color: '#6b7280' } }
+                }
+            }
+        });
+    }
+
+    function renderCPIChart() {
+        const ctx = document.getElementById('cpiChart').getContext('2d');
+        if (charts.cpi) charts.cpi.destroy();
+
+        charts.cpi = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: benchmarkData.map(d => d.name),
+                datasets: [{
+                    label: 'Pipeline CPI',
+                    data: benchmarkData.map(d => d.pipeline.cpi),
+                    backgroundColor: benchmarkData.map(d =>
+                        d.pipeline.cpi <= 1.2 ? COLORS.efficient + '99' :
+                        d.pipeline.cpi <= 1.6 ? COLORS.pipeline + '99' :
+                        d.pipeline.cpi <= 2.0 ? COLORS.flushes + '99' :
+                        COLORS.stalls + '99'
+                    ),
+                    borderColor: benchmarkData.map(d =>
+                        d.pipeline.cpi <= 1.2 ? COLORS.efficient :
+                        d.pipeline.cpi <= 1.6 ? COLORS.pipeline :
+                        d.pipeline.cpi <= 2.0 ? COLORS.flushes :
+                        COLORS.stalls
+                    ),
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    annotation: {}
+                },
+                scales: {
+                    x: { ticks: { color: '#6b7280', maxRotation: 45 }, grid: { color: '#1e1e30' } },
+                    y: {
+                        ticks: { color: '#6b7280' },
+                        grid: { color: '#1e1e30' },
+                        title: { display: true, text: 'CPI', color: '#6b7280' },
+                        min: 0
+                    }
+                }
+            }
+        });
+    }
+
+    function renderHazardChart() {
+        const ctx = document.getElementById('hazardChart').getContext('2d');
+        if (charts.hazard) charts.hazard.destroy();
+
+        // Only show tests that have hazards
+        const filtered = benchmarkData.filter(d => d.pipeline.stalls > 0 || d.pipeline.flushes > 0);
+        if (filtered.length === 0) {
+            ctx.font = '14px sans-serif';
+            ctx.fillStyle = '#6b7280';
+            ctx.fillText('No hazards detected in any test', 40, 40);
+            return;
+        }
+
+        charts.hazard = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: filtered.map(d => d.name),
+                datasets: [
+                    {
+                        label: 'Stalls (load-use)',
+                        data: filtered.map(d => d.pipeline.stalls),
+                        backgroundColor: COLORS.stalls + '99',
+                        borderColor: COLORS.stalls,
+                        borderWidth: 1
+                    },
+                    {
+                        label: 'Flushes (branch/jump)',
+                        data: filtered.map(d => d.pipeline.flushes),
+                        backgroundColor: COLORS.flushes + '99',
+                        borderColor: COLORS.flushes,
+                        borderWidth: 1
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { labels: { color: '#9ca3af' } } },
+                scales: {
+                    x: { stacked: true, ticks: { color: '#6b7280' }, grid: { color: '#1e1e30' } },
+                    y: { stacked: true, ticks: { color: '#6b7280' }, grid: { color: '#1e1e30' }, title: { display: true, text: 'Count', color: '#6b7280' } }
+                }
+            }
+        });
+    }
+
+    function renderOverheadChart() {
+        const ctx = document.getElementById('overheadChart').getContext('2d');
+        if (charts.overhead) charts.overhead.destroy();
+
+        const totalStalls = benchmarkData.reduce((s, d) => s + d.pipeline.stalls, 0);
+        const totalFlushes = benchmarkData.reduce((s, d) => s + d.pipeline.flushes * 2, 0); // 2 cycles per flush
+        const totalPipeFill = benchmarkData.length * 4; // ~4 cycles pipeline fill/drain per test
+        const totalUseful = benchmarkData.reduce((s, d) => s + d.pipeline.instructions, 0);
+
+        charts.overhead = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Useful Execution', 'Load-Use Stalls', 'Branch Flushes', 'Pipeline Fill/Drain'],
+                datasets: [{
+                    data: [totalUseful, totalStalls, totalFlushes, totalPipeFill],
+                    backgroundColor: [COLORS.efficient + 'cc', COLORS.stalls + 'cc', COLORS.flushes + 'cc', COLORS.single + '66'],
+                    borderColor: '#0f1117',
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'bottom', labels: { color: '#9ca3af', padding: 16 } }
+                }
+            }
+        });
+    }
+
+    function renderScatterChart() {
+        const ctx = document.getElementById('scatterChart').getContext('2d');
+        if (charts.scatter) charts.scatter.destroy();
+
+        charts.scatter = new Chart(ctx, {
+            type: 'scatter',
+            data: {
+                datasets: [
+                    {
+                        label: 'Single-Cycle (CPI=1)',
+                        data: benchmarkData.map(d => ({ x: d.single.instructions, y: d.single.cycles })),
+                        backgroundColor: COLORS.single + 'cc',
+                        borderColor: COLORS.single,
+                        pointRadius: 6
+                    },
+                    {
+                        label: 'Pipeline',
+                        data: benchmarkData.map(d => ({ x: d.pipeline.instructions, y: d.pipeline.cycles })),
+                        backgroundColor: COLORS.pipeline + 'cc',
+                        borderColor: COLORS.pipeline,
+                        pointRadius: 6
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { labels: { color: '#9ca3af' } } },
+                scales: {
+                    x: { ticks: { color: '#6b7280' }, grid: { color: '#1e1e30' }, title: { display: true, text: 'Instructions', color: '#6b7280' } },
+                    y: { ticks: { color: '#6b7280' }, grid: { color: '#1e1e30' }, title: { display: true, text: 'Cycles', color: '#6b7280' } }
+                }
+            }
+        });
+    }
+
+    function renderTable() {
+        const tbody = document.querySelector('#resultsTable tbody');
+        const tagClass = { T1: 'tag-t1', T2: 'tag-t2', T3: 'tag-t3', T4: 'tag-t4' };
+
+        tbody.innerHTML = benchmarkData.map(d => {
+            const overhead = ((d.pipeline.cycles / d.single.cycles - 1) * 100).toFixed(0);
+            return `<tr>
+                <td><strong>${d.name}</strong></td>
+                <td><span class="tag ${tagClass[d.category] || 'tag-t4'}">${d.category}</span></td>
+                <td>${d.pipeline.instructions.toLocaleString()}</td>
+                <td>${d.single.cycles.toLocaleString()}</td>
+                <td>${d.pipeline.cycles.toLocaleString()}</td>
+                <td>${d.pipeline.stalls}</td>
+                <td>${d.pipeline.flushes}</td>
+                <td>${d.pipeline.cpi.toFixed(2)}</td>
+                <td style="color:${overhead > 50 ? COLORS.stalls : COLORS.flushes}">+${overhead}%</td>
+            </tr>`;
+        }).join('');
+    }
+
+    function renderAll() {
+        renderSummaryCards();
+        renderCyclesChart();
+        renderCPIChart();
+        renderHazardChart();
+        renderOverheadChart();
+        renderScatterChart();
+        renderTable();
+    }
+
+    async function runSelectedTest() {
+        const select = document.getElementById('testSelect');
+        const testPath = select.value;
+        if (!testPath) return alert('Select a test first');
+
+        const btn = document.getElementById('runBtn');
+        const status = document.getElementById('runStatus');
+        btn.disabled = true;
+        status.innerHTML = 'Running... <span class="spinner"></span>';
+
+        try {
+            const res = await fetch(`/api/run?test=${encodeURIComponent(testPath)}`);
+            const data = await res.json();
+            if (data.error) {
+                status.textContent = 'Error: ' + data.error;
+            } else {
+                const name = testPath.split('/').pop().replace('.bin', '');
+                const cat = testPath.split('/')[1];
+                // Update or add to benchmarkData
+                const idx = benchmarkData.findIndex(d => d.name === name);
+                const entry = { name, category: cat, single: data.single, pipeline: data.pipeline };
+                if (idx >= 0) benchmarkData[idx] = entry;
+                else benchmarkData.push(entry);
+
+                renderAll();
+                status.textContent = `Done: ${name} — Pipeline CPI: ${data.pipeline.cpi.toFixed(2)}`;
+            }
+        } catch (e) {
+            status.textContent = 'Error: ' + e.message;
+        }
+        btn.disabled = false;
+    }
+
+    async function runAllTests() {
+        const btn = document.getElementById('runAllBtn');
+        const status = document.getElementById('runStatus');
+        btn.disabled = true;
+        status.innerHTML = 'Running all tests... <span class="spinner"></span>';
+
+        try {
+            const res = await fetch('/api/benchmarks');
+            benchmarkData = await res.json();
+            renderAll();
+            status.textContent = `Done: ${benchmarkData.length} tests completed.`;
+        } catch (e) {
+            status.textContent = 'Error: ' + e.message;
+        }
+        btn.disabled = false;
+    }
+
+    // Init
+    loadBenchmarks();
+    loadTests();
+    </script>
+</body>
+</html>

@@ -76,7 +76,16 @@ typedef struct {
 extern uint32_t pc;
 extern uint32_t x[32];
 
+/* ---- Pipeline statistics ---- */
+typedef struct {
+    uint32_t cycles;
+    uint32_t instructions;
+    uint32_t stalls;
+    uint32_t flushes;
+    double   cpi;
+} PipelineStats;
+
 /* ---- Pipeline entry point ---- */
-void run_pipeline(void);
+PipelineStats run_pipeline(void);
 
 #endif /* PIPELINE_H */

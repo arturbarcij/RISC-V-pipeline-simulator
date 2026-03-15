@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RISC-V RV32I Simulator Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0f1117;color:#e4e4e7;font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh}
+h1{text-align:center;padding:24px 0 8px;font-size:28px;letter-spacing:-0.5px}
+h1 span{color:#60a5fa}
+.subtitle{text-align:center;color:#71717a;font-size:14px;margin-bottom:20px}
+.controls{display:flex;justify-content:center;gap:12px;margin-bottom:24px;flex-wrap:wrap;padding:0 20px}
+select,button{background:#1a1a2e;color:#e4e4e7;border:1px solid #2d2d3f;padding:10px 20px;border-radius:8px;font-size:14px;cursor:pointer;transition:all .2s}
+select:hover,button:hover{border-color:#60a5fa}
+button.primary{background:#2563eb;border-color:#2563eb;font-weight:600}
+button.primary:hover{background:#1d4ed8}
+button.run-all{background:#7c3aed;border-color:#7c3aed;font-weight:600}
+button.run-all:hover{background:#6d28d9}
+.status{text-align:center;color:#71717a;font-size:13px;margin-bottom:16px;min-height:20px}
+.dashboard{display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:0 20px 20px;max-width:1400px;margin:0 auto}
+.card{background:#1a1a2e;border:1px solid #2d2d3f;border-radius:12px;padding:20px;overflow:hidden}
+.card h2{font-size:16px;margin-bottom:16px;color:#a1a1aa;font-weight:500}
+.card.full{grid-column:1/-1}
+.pipeline-diagram{display:flex;justify-content:center;align-items:center;gap:0;margin:10px 0}
+.pipe-stage{background:#1e293b;border:2px solid #334155;border-radius:10px;padding:14px 22px;text-align:center;min-width:80px;transition:all .3s}
+.pipe-stage .label{font-size:15px;font-weight:700;color:#60a5fa}
+.pipe-stage .desc{font-size:10px;color:#71717a;margin-top:2px}
+.pipe-arrow{color:#334155;font-size:24px;margin:0 4px}
+.pipe-stage.active{border-color:#60a5fa;box-shadow:0 0 12px rgba(96,165,250,.3)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:10px 12px;border-bottom:2px solid #2d2d3f;color:#71717a;font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+td{padding:8px 12px;border-bottom:1px solid #1e1e2e}
+tr:hover td{background:#1e1e2e}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600}
+.badge-pass{background:#064e3b;color:#34d399}
+.badge-fail{background:#7f1d1d;color:#f87171}
+.chart-container{position:relative;height:280px}
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+.stat-box{background:#0f1117;border-radius:8px;padding:14px;text-align:center}
+.stat-box .val{font-size:24px;font-weight:700;color:#60a5fa}
+.stat-box .lbl{font-size:11px;color:#71717a;margin-top:4px;text-transform:uppercase;letter-spacing:.5px}
+@media(max-width:900px){.dashboard{grid-template-columns:1fr}.stats-grid{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+
+<h1>RISC-V <span>RV32I</span> Simulator</h1>
+<p class="subtitle">Single-Cycle &amp; 5-Stage Pipeline -- running entirely in your browser</p>
+
+<div class="controls">
+  <select id="testSelect"></select>
+  <button class="primary" onclick="runSelected()">Run Selected</button>
+  <button class="run-all" onclick="runAllBenchmarks()">Run All</button>
+</div>
+<div class="status" id="status"></div>
+
+<!-- Pipeline Diagram -->
+<div class="card full" style="max-width:700px;margin:0 auto 20px">
+  <h2>Pipeline Stages</h2>
+  <div class="pipeline-diagram">
+    <div class="pipe-stage" id="ps-if"><div class="label">IF</div><div class="desc">Fetch</div></div>
+    <div class="pipe-arrow">&#x2192;</div>
+    <div class="pipe-stage" id="ps-id"><div class="label">ID</div><div class="desc">Decode</div></div>
+    <div class="pipe-arrow">&#x2192;</div>
+    <div class="pipe-stage" id="ps-ex"><div class="label">EX</div><div class="desc">Execute</div></div>
+    <div class="pipe-arrow">&#x2192;</div>
+    <div class="pipe-stage" id="ps-mem"><div class="label">MEM</div><div class="desc">Memory</div></div>
+    <div class="pipe-arrow">&#x2192;</div>
+    <div class="pipe-stage" id="ps-wb"><div class="label">WB</div><div class="desc">Writeback</div></div>
+  </div>
+</div>
+
+<!-- Summary Stats -->
+<div style="max-width:1400px;margin:0 auto;padding:0 20px">
+  <div class="stats-grid" id="summaryStats">
+    <div class="stat-box"><div class="val" id="statTests">0</div><div class="lbl">Tests Run</div></div>
+    <div class="stat-box"><div class="val" id="statAvgCpi">--</div><div class="lbl">Avg Pipeline CPI</div></div>
+    <div class="stat-box"><div class="val" id="statTotalStalls">0</div><div class="lbl">Total Stalls</div></div>
+    <div class="stat-box"><div class="val" id="statTotalFlushes">0</div><div class="lbl">Total Flushes</div></div>
+  </div>
+</div>
+
+<div class="dashboard">
+  <!-- Cycles Chart -->
+  <div class="card"><h2>Cycles Comparison</h2><div class="chart-container"><canvas id="chartCycles"></canvas></div></div>
+  <!-- CPI Chart -->
+  <div class="card"><h2>CPI Comparison</h2><div class="chart-container"><canvas id="chartCpi"></canvas></div></div>
+  <!-- Hazard Breakdown -->
+  <div class="card"><h2>Hazard Breakdown (Pipeline)</h2><div class="chart-container"><canvas id="chartHazards"></canvas></div></div>
+  <!-- Overhead Doughnut -->
+  <div class="card"><h2>Pipeline Overhead Distribution</h2><div class="chart-container"><canvas id="chartOverhead"></canvas></div></div>
+  <!-- Detailed Table -->
+  <div class="card full">
+    <h2>Detailed Results</h2>
+    <div style="overflow-x:auto">
+      <table id="resultsTable">
+        <thead><tr>
+          <th>Test</th>
+          <th>SC Cycles</th>
+          <th>SC Instr</th>
+          <th>PL Cycles</th>
+          <th>PL Instr</th>
+          <th>CPI</th>
+          <th>Stalls</th>
+          <th>Flushes</th>
+          <th>Validation</th>
+        </tr></thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+// =====================================================================
+//  Test binaries (base64 encoded)
+// =====================================================================
+const TEST_BINARIES = {
+"T1/addlarge": "NwUAgBMFFQC3BQCAk4Xl/zMGtQCTCKAAcwAAAAQAAAAUAAAAAwAAAEdOVQAch87JXZ0IRDEyb31MBIgnjsRIOg==",
+"T1/addneg": "EwUA/pMFAPwzBrUAkwigAHMAAAAEAAAAFAAAAAMAAABHTlUAhxz7EoNdvoO6QHe+CCTcZHJYr4E=",
+"T1/addpos": "EwVQAJMFYAAzBrUAkwigAHMAAAAEAAAAFAAAAAMAAABHTlUAOlzgwo9YGI3RpXcRjupPL9FibmY=",
+"T1/bool": "t1I0EpOCgmc3882rEwOz+rPFYgAz5mIAs/ZiABPHElKT5xJSE/gSUpMIoABzAAAABAAAABQAAAADAAAAR05VAK89MerLv1rI0Ku9octyCGPqTaFk",
+"T1/set": "kwIwEhMDYEWzhWIAM4ZiQLOmYgAzt2IAk6fyrRO48q2TCKAAcwAAAAQAAAAUAAAAAwAAAEdOVQBtva4ieFMdQ8VRs4PBmjkNanmImA==",
+"T1/shift": "NwUA/5MF8A8TVYVAk5WFAJOF9Q8zBrUAkwigAHMAAAAEAAAAFAAAAAMAAABHTlUAsCDA1z0MctEJRueFjNLVwfmndTY=",
+"T1/shift2": "kwIQADf1zauThbX6sxVVADNWVQCzVlVAExc1AJNXNQATWDVAkwigAHMAAAAEAAAAFAAAAAMAAABHTlUAMWFPIdbxHJSpkteDod7l+qSqtYQ=",
+"T2/branchcnt": "EwUAAJMFoAATBRUA4x61/uNItf7jxqX+EwYFAJMIoABzAAAABAAAABQAAAADAAAAR05VAL/zVRLUGOLwr1GdHDRUrBO+3Grf",
+"T2/branchmany": "EwWgAJMFQAFjALUCY0i1ABMFMACTBUAAY0y1AGNEtQDjSLX+4061/hMFEACTBSAAEwYFAJMIoABzAAAABAAAABQAAAADAAAAR05VAOn81Q0oAEe4d2Pg4JfRPuTU6iQp",
+"T2/branchtrap": "kwJQ+BMDUPiTA6AHY4JiAhMGIABjSnMAEwdAAGPiUwCTB1AAY3pzApMGMADj1lP+kwUQAOOecvwTBQAAkwUAABMGAACTBgAAEwcAAJMHAAATCAAAkwgAAJMIoABzAAAABAAAABQAAAADAAAAR05VAECaEtvCKDQA5pIzQm2e2gFxWHCF",
+"T3/loop": "NwEQAO8AgAeTCKAAcwAAABMBAf0jJoECEwQBAyMupPwjLLT8IyYE/iMkBP5vAAADgyeE/pOXJwADJ8T9swf3AIOnBwADJ8T+swf3ACMm9P6DJ4T+k4cXACMk9P4DJ4T+gyeE/eNG9/yDJ8T+E4UHAAMkwQITAQEDZ4AAABMBAf4jLhEAIyyBACMqkQATBAECEwMBAJMEAwATA0AGIyRk/gMjhP4TDvP/IyLE/xMOAwATCA4AkwgAABNeuAGTllgAs2beABMWWACTBgMAE4UGAJMFAACTVrUBk5dVALPn9gATF1UAkwcDAJOXJwCTh/cAk9dHAJOXRwAzAfFAkwcBAJOHNwCT1ycAk5cnACMg9P4jJgT+bwCAAgMnBP6DJ8T+k5cnALMH9wADJ8T+I6DnAIMnxP6ThxcAIyb0/gMnxP6DJ4T+40r3/IMlhP4DJQT+7/Af7JMHBQATgQQAE4UHABMBBP6DIMEBAySBAYMkQQETAQECZ4AAAA==",
+"T3/recursive": "NwEQAO8AwAWTCKAAcwAAABMBAf4jLhEAIyyBABMEAQIjJqT+gyfE/mNG8ACTBxAAbwDAAYMnxP6Th/f/E4UHAO/wH/2TBwUAk4cXABOFBwCDIMEBAySBARMBAQJngAAAEwEB/yMmEQAjJIEAEwQBARMFQAbv8N/5kwcFABOFBwCDIMEAAySBABMBAQFngAAAR0NDOiAoVWJ1bnR1IDcuNS4wLTN1YnVudHUxfjE4LjA0KSA3LjUuMAAAAAAEAAAAFAAAAAMAAABHTlUA4MpQ7PdpaH+uQdKbt+4kOsTA43Y=",
+"T3/string": "EwUAD4MABQATBRUAAwEFABMFFQCDAQUAEwUVAAMCBQATBRUAgwIFABMFFQADAwUAEwUVAIMDBQATBRUAAwQFABMFFQCDBAUAEwUVAIMFBQATBRUAAwYFABMFFQCDBgUAEwUVAAMHBQATBRUAgwcFABMFFQADCAUAEwUVAAMJBQATBRUAgwkFABMFFQADCgUAEwUVAIMKBQATBRUAAwsFABMFFQCDCwUAEwUVAAMMBQATBRUAgwwFABMFFQADDQUAEwUVAIMNBQATBRUAAw4FABMFFQCDDgUAEwUVAAMPBQATBRUAgw8FAJMIoABzAAAASXMgaXQgbWUgeW91J3JlIGxvb2tpbmcgZm9yPwAAAAAEAAAAFAAAAAMAAABHTlUALey05Q4dFWA5RNs+TDoq8nznyPQ=",
+"T3/width": "t/LNq5OCsvoTA/AHIwBTAKMQUwCjIVMAgwUDAAMWEwCDJjMAA0cDAINXEwADKAMAkwigAHMAAAAEAAAAFAAAAAMAAABHTlUAh0tiowy6PRr6VekBI8yjpjjyBzE=",
+"T4/t1": "kwIQALf1zauThbX6M5ZVALPWVQAz11VAk5c1ABPYNQAT1TVAkwigAHMAAAA=",
+"T4/t10": "EwWgAJMFQAFjALUCY0i1ABMFMACTBUAAY0y1AGNEtQDjSLX+4061/hMFEACTBSAAEwYFAJMIoABzAAAA",
+"T4/t11": "t/LNq5OCsvoTA/AHIwBTAKMQUwCjIVMAgwUDAAMWEwCDJjMAA0cDAINXEwADKAMAkwigAHMAAAA=",
+"T4/t12": "NwEQAO8AwAeTBQUAkwigAHMAAAATAQH9IyaBAhMEAQMjLqT8Iyy0/CMmBP4jJAT+bwAAA4MnhP6TlycAAyfE/bMH9wCDpwcAAyfE/rMH9wAjJvT+gyeE/pOHFwAjJPT+AyeE/oMnhP3jRvf8gyfE/hOFBwADJMECEwEBA2eAAAATAQH+Iy4RACMsgQAjKpEAEwQBAhMDAQCTBAMAEwNABiMkZP4DI4T+Ew7z/yMixP8TDgMAEwgOAJMIAAATXrgBk5ZYALNm3gATFlgAkwYDABOFBgCTBQAAk1a1AZOXVQCz5/YAExdVAJMHAwCTlycAk4f3AJPXRwCTl0cAMwHxQJMHAQCThzcAk9cnAJOXJwAjIPT+IyYE/m8AgAIDJwT+gyfE/pOXJwCzB/cAAyfE/iOg5wCDJ8T+k4cXACMm9P4DJ8T+gyeE/uNK9/yDJYT+AyUE/u/wH+yTBwUAE4EEABOFBwATAQT+gyDBAQMkgQGDJEEBEwEBAmeAAAA=",
+"T4/t13": "NwEQAO8AAAaTBQUAkwigAHMAAAATAQH+Iy4RACMsgQATBAECIyak/oMnxP5jRvAAkwcQAG8AwAGDJ8T+k4f3/xOFBwDv8B/9kwcFAJOHFwAThQcAgyDBAQMkgQETAQECZ4AAABMBAf8jJhEAIySBABMEAQETBUAG7/Df+ZMHBQAThQcAgyDBAAMkgQATAQEBZ4AAAA==",
+"T4/t14": "FwUAABMFxQ+DAAUAEwUVAAMBBQATBRUAgwEFABMFFQADAgUAEwUVAIMCBQATBRUAAwMFABMFFQCDAwUAEwUVAAMEBQATBRUAgwQFABMFFQCDBQUAEwUVAAMGBQATBRUAgwYFABMFFQADBwUAEwUVAIMHBQATBRUAAwgFABMFFQCDCAUAEwUVAAMJBQATBRUAgwkFABMFFQADCgUAEwUVAIMKBQATBRUAAwsFABMFFQCDCwUAEwUVAAMMBQATBRUAgwwFABMFFQADDQUAEwUVAIMNBQATBRUAAw4FABMFFQCDDgUAEwUVAAMPBQATBRUAgw8FAJMIoABzAAAASXMgaXQgbWUgeW91J3JlIGxvb2tpbmcgZm9yPwAAAAA=",
+"T4/t15": "EwBQAJMIoABzAAAA",
+"T4/t2": "t1I0EpOCgmc3882rEwOz+rPFYgAz5mIAs/ZiABPHElKT5xJSE/gSUpMIoABzAAAA",
+"T4/t3": "kwIwEhMDYEWzhWIAM4ZiQLOmYgAzt2IAk6fyrRO48q2TCKAAcwAAAA==",
+"T4/t4": "NwUAgBMFFQC3BQCAk4Xl/zMGtQCTCKAAcwAAAA==",
+"T4/t5": "EwUA/pMFAPwzBrUAkwigAHMAAAA=",
+"T4/t6": "EwVQAJMFYAAzBrUAkwigAHMAAAA=",
+"T4/t7": "NwUA/5MF8A8TVYVAk5WFAJOF9Q8zBrUAkwigAHMAAAA=",
+"T4/t8": "kwJQ+BMDUPiTA6AHY4JiAhMGIABjSnMAEwdAAGPiUwCTB1AAY3pzApMGMADj1lP+kwUQAOOecvwTBQAAkwUAABMGAACTBgAAEwcAAJMHAAATCAAAkwgAAJMIoABzAAAA",
+"T4/t9": "EwUAAJMFoAATBRUA4x61/uNItf7jxqX+EwYFAJMIoABzAAAA"
+};
+
+// Expected pipeline results for validation
+const EXPECTED = {
+"T1/addlarge": {instructions:6,cycles:10,stalls:0,flushes:0,cpi:1.67},
+"T3/loop": {instructions:2669,cycles:3993,stalls:904,flushes:206,cpi:1.50},
+"T3/recursive": {instructions:1726,cycles:2644,stalls:201,flushes:305,cpi:1.53},
+"T2/branchcnt": {instructions:26,cycles:48,stalls:0,flushes:9,cpi:1.85},
+"T4/t15": {instructions:1,cycles:6,stalls:0,flushes:0,cpi:6.00}
+};
+
+// =====================================================================
+//  RISC-V RV32I Simulator (JavaScript port)
+// =====================================================================
+
+function decodeBase64(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+}
+
+// Bit helpers
+function getBits(x, hi, lo) {
+    const w = hi - lo + 1;
+    return (x >>> lo) & ((w === 32) ? 0xFFFFFFFF : ((1 << w) - 1));
+}
+function getRd(i)     { return getBits(i, 11, 7); }
+function getFunct3(i) { return getBits(i, 14, 12); }
+function getRs1(i)    { return getBits(i, 19, 15); }
+function getRs2(i)    { return getBits(i, 24, 20); }
+function getFunct7(i) { return getBits(i, 31, 25); }
+
+function signExt(val, bits) {
+    const shift = 32 - bits;
+    return (val << shift) >> shift;
+}
+
+function toU32(v) { return v >>> 0; }
+function toI32(v) { return v | 0; }
+
+// =====================================================================
+//  Memory model: word-addressed array (like the C version)
+// =====================================================================
+const MAX_MEMORY = 262144;
+
+function createMemory() {
+    return new Uint32Array(MAX_MEMORY);
+}
+
+function loadBinary(mem, bytes) {
+    // Load little-endian 32-bit words
+    const nWords = Math.floor(bytes.length / 4);
+    for (let i = 0; i < nWords; i++) {
+        mem[i] = bytes[i*4] | (bytes[i*4+1] << 8) | (bytes[i*4+2] << 16) | (bytes[i*4+3] << 24);
+    }
+    return nWords;
+}
+
+function memGetWord(mem, addr) {
+    const idx = addr >>> 2;
+    if (idx >= MAX_MEMORY) return 0;
+    return mem[idx];
+}
+
+function memReadByte(mem, addr) {
+    const wordIdx = addr >>> 2;
+    const byteIdx = addr & 3;
+    if (wordIdx >= MAX_MEMORY) return 0;
+    return (mem[wordIdx] >>> (byteIdx * 8)) & 0xFF;
+}
+
+function memWriteByte(mem, addr, val) {
+    const wordIdx = addr >>> 2;
+    const byteIdx = addr & 3;
+    if (wordIdx >= MAX_MEMORY) return;
+    const shift = byteIdx * 8;
+    const mask = (0xFF << shift) >>> 0;
+    const word = mem[wordIdx] >>> 0;
+    mem[wordIdx] = ((word & ~mask) | ((val & 0xFF) << shift)) >>> 0;
+}
+
+// =====================================================================
+//  Immediate decoding
+// =====================================================================
+function decodeImmediate(instr, opcode) {
+    switch (opcode) {
+    case 0x13: case 0x03: case 0x67: // I-type
+        return signExt((instr >>> 20) & 0xFFF, 12);
+    case 0x23: { // S-type
+        const imm = (getBits(instr,31,25) << 5) | getBits(instr,11,7);
+        return signExt(imm, 12);
+    }
+    case 0x63: { // B-type
+        const imm = (getBits(instr,31,31) << 12)
+                  | (getBits(instr,7,7) << 11)
+                  | (getBits(instr,30,25) << 5)
+                  | (getBits(instr,11,8) << 1);
+        return signExt(imm, 13);
+    }
+    case 0x37: case 0x17: // U-type
+        return toI32(instr & 0xFFFFF000);
+    case 0x6F: { // J-type
+        const imm = (getBits(instr,31,31) << 20)
+                  | (getBits(instr,19,12) << 12)
+                  | (getBits(instr,20,20) << 11)
+                  | (getBits(instr,30,21) << 1);
+        return signExt(imm, 21);
+    }
+    default: return 0;
+    }
+}
+
+// =====================================================================
+//  ALU
+// =====================================================================
+function aluCompute(a, b, funct3, funct7, opcode) {
+    a = toU32(a); b = toU32(b);
+    if (opcode === 0x33) { // R-type
+        switch (funct3) {
+        case 0: return funct7 === 0x20 ? toU32(toI32(a) - toI32(b)) : toU32(toI32(a) + toI32(b));
+        case 1: return toU32(a << (b & 0x1F));
+        case 2: return (toI32(a) < toI32(b)) ? 1 : 0;
+        case 3: return (a < b) ? 1 : 0;  // unsigned comparison on u32
+        case 4: return toU32(a ^ b);
+        case 5: return funct7 === 0x20 ? toU32(toI32(a) >> (b & 0x1F)) : toU32(a >>> (b & 0x1F));
+        case 6: return toU32(a | b);
+        case 7: return toU32(a & b);
+        }
+    }
+    if (opcode === 0x13) { // I-type ALU
+        const imm = b;
+        const shamt = imm & 0x1F;
+        switch (funct3) {
+        case 0: return toU32(toI32(a) + toI32(imm));
+        case 1: return toU32(a << shamt);
+        case 2: return (toI32(a) < toI32(imm)) ? 1 : 0;
+        case 3: return (a < imm) ? 1 : 0;
+        case 4: return toU32(a ^ imm);
+        case 5: return funct7 === 0x20 ? toU32(toI32(a) >> shamt) : toU32(a >>> shamt);
+        case 6: return toU32(a | imm);
+        case 7: return toU32(a & imm);
+        }
+    }
+    if (opcode === 0x03 || opcode === 0x23) return toU32(toI32(a) + toI32(b));
+    if (opcode === 0x37) return toU32(b);
+    if (opcode === 0x17) return 0;
+    return 0;
+}
+
+// =====================================================================
+//  Branch evaluation
+// =====================================================================
+function evalBranch(a, b, funct3) {
+    a = toU32(a); b = toU32(b);
+    switch (funct3) {
+    case 0: return a === b;
+    case 1: return a !== b;
+    case 4: return toI32(a) < toI32(b);
+    case 5: return toI32(a) >= toI32(b);
+    case 6: return a < b;
+    case 7: return a >= b;
+    default: return false;
+    }
+}
+
+// =====================================================================
+//  Load/Store helpers
+// =====================================================================
+function loadMemory(mem, addr, funct3) {
+    switch (funct3) {
+    case 0: { // LB
+        const b = memReadByte(mem, addr);
+        return (b & 0x80) ? (b | 0xFFFFFF00) >>> 0 : b;
+    }
+    case 1: { // LH
+        const lo = memReadByte(mem, addr);
+        const hi = memReadByte(mem, addr + 1);
+        const half = (hi << 8) | lo;
+        return (half & 0x8000) ? (half | 0xFFFF0000) >>> 0 : half;
+    }
+    case 2: { // LW
+        return (memReadByte(mem, addr) | (memReadByte(mem, addr+1) << 8) |
+                (memReadByte(mem, addr+2) << 16) | (memReadByte(mem, addr+3) << 24)) >>> 0;
+    }
+    case 4: return memReadByte(mem, addr); // LBU
+    case 5: { // LHU
+        return (memReadByte(mem, addr) | (memReadByte(mem, addr+1) << 8)) >>> 0;
+    }
+    default: return 0;
+    }
+}
+
+function storeMemory(mem, addr, val, funct3) {
+    val = toU32(val);
+    switch (funct3) {
+    case 0: memWriteByte(mem, addr, val & 0xFF); break;
+    case 1:
+        memWriteByte(mem, addr, val & 0xFF);
+        memWriteByte(mem, addr+1, (val >>> 8) & 0xFF);
+        break;
+    case 2:
+        memWriteByte(mem, addr, val & 0xFF);
+        memWriteByte(mem, addr+1, (val >>> 8) & 0xFF);
+        memWriteByte(mem, addr+2, (val >>> 16) & 0xFF);
+        memWriteByte(mem, addr+3, (val >>> 24) & 0xFF);
+        break;
+    }
+}
+
+// =====================================================================
+//  Single-Cycle Simulator
+// =====================================================================
+function runSingleCycle(b64) {
+    const bytes = decodeBase64(b64);
+    const mem = createMemory();
+    loadBinary(mem, bytes);
+    const x = new Uint32Array(32);
+    let pc = 0;
+    let instrCount = 0;
+    const MAX_CYCLES = 500000;
+
+    while (instrCount < MAX_CYCLES) {
+        const instr = memGetWord(mem, pc);
+        if (instr === 0x73) { instrCount++; break; } // ECALL
+        const opcode = instr & 0x7F;
+        const rd = getRd(instr);
+        const rs1 = getRs1(instr);
+        const rs2 = getRs2(instr);
+        const funct3 = getFunct3(instr);
+        const funct7 = getFunct7(instr);
+        const imm = decodeImmediate(instr, opcode);
+        const r1 = toU32(x[rs1]);
+        const r2 = toU32(x[rs2]);
+
+        let nextPc = pc + 4;
+        let writeRd = false;
+        let rdVal = 0;
+
+        switch (opcode) {
+        case 0x33: // R-type
+            rdVal = aluCompute(r1, r2, funct3, funct7, opcode);
+            writeRd = true;
+            break;
+        case 0x13: // I-type ALU
+            rdVal = aluCompute(r1, toU32(imm), funct3, funct7, opcode);
+            writeRd = true;
+            break;
+        case 0x03: // Load
+            rdVal = loadMemory(mem, toU32(toI32(r1) + imm), funct3);
+            writeRd = true;
+            break;
+        case 0x23: // Store
+            storeMemory(mem, toU32(toI32(r1) + imm), r2, funct3);
+            break;
+        case 0x63: // Branch
+            if (evalBranch(r1, r2, funct3)) nextPc = toU32(toI32(pc) + imm);
+            break;
+        case 0x37: // LUI
+            rdVal = toU32(imm);
+            writeRd = true;
+            break;
+        case 0x17: // AUIPC
+            rdVal = toU32(pc + toU32(imm));
+            writeRd = true;
+            break;
+        case 0x6F: // JAL
+            rdVal = toU32(pc + 4);
+            nextPc = toU32(toI32(pc) + imm);
+            writeRd = true;
+            break;
+        case 0x67: // JALR
+            rdVal = toU32(pc + 4);
+            nextPc = toU32(toI32(r1) + imm) & ~1;
+            writeRd = true;
+            break;
+        }
+
+        if (writeRd && rd !== 0) x[rd] = toU32(rdVal);
+        x[0] = 0;
+        pc = nextPc;
+        instrCount++;
+    }
+
+    return { cycles: instrCount, instructions: instrCount, cpi: 1.0 };
+}
+
+// =====================================================================
+//  5-Stage Pipeline Simulator
+// =====================================================================
+function runPipeline(b64) {
+    const bytes = decodeBase64(b64);
+    const mem = createMemory();
+    loadBinary(mem, bytes);
+    const x = new Uint32Array(32);
+    let pc = 0;
+
+    // Pipeline registers
+    let if_id = {valid:false, instruction:0, pc:0};
+    let id_ex = {valid:false, pc:0, rs1_val:0, rs2_val:0, imm:0, rd:0, rs1:0, rs2:0,
+                 opcode:0, funct3:0, funct7:0, reg_write:false, mem_read:false, mem_write:false,
+                 branch:false, is_jal:false, is_jalr:false};
+    let ex_mem = {valid:false, alu_result:0, rs2_val:0, rd:0, funct3:0,
+                  reg_write:false, mem_read:false, mem_write:false};
+    let mem_wb = {valid:false, rd:0, write_data:0, reg_write:false};
+
+    let ecall_in_pipeline = false;
+    let flush_signal = false;
+    let flush_target = 0;
+
+    let cycle_count = 0;
+    let instr_count = 0;
+    let stall_count = 0;
+    let flush_count = 0;
+
+    let draining = false;
+    const MAX_CYCLES = 500000;
+
+    function instrUsesRs1(opcode) {
+        return opcode !== 0x37 && opcode !== 0x17 && opcode !== 0x6F;
+    }
+    function instrUsesRs2(opcode) {
+        return opcode === 0x33 || opcode === 0x23 || opcode === 0x63;
+    }
+
+    function detectLoadUseHazard() {
+        if (!id_ex.valid || !id_ex.mem_read || id_ex.rd === 0) return false;
+        if (!if_id.valid) return false;
+        const instr = if_id.instruction;
+        const opcode = instr & 0x7F;
+        const rs1 = getRs1(instr);
+        const rs2 = getRs2(instr);
+        if (instrUsesRs1(opcode) && rs1 === id_ex.rd) return true;
+        if (instrUsesRs2(opcode) && rs2 === id_ex.rd) return true;
+        return false;
+    }
+
+    function forwardRs1() {
+        const rs = id_ex.rs1;
+        if (rs === 0) return 0;
+        if (ex_mem.valid && ex_mem.reg_write && ex_mem.rd !== 0 && ex_mem.rd === rs)
+            return ex_mem.alu_result;
+        if (mem_wb.valid && mem_wb.reg_write && mem_wb.rd !== 0 && mem_wb.rd === rs)
+            return mem_wb.write_data;
+        return id_ex.rs1_val;
+    }
+    function forwardRs2() {
+        const rs = id_ex.rs2;
+        if (rs === 0) return 0;
+        if (ex_mem.valid && ex_mem.reg_write && ex_mem.rd !== 0 && ex_mem.rd === rs)
+            return ex_mem.alu_result;
+        if (mem_wb.valid && mem_wb.reg_write && mem_wb.rd !== 0 && mem_wb.rd === rs)
+            return mem_wb.write_data;
+        return id_ex.rs2_val;
+    }
+
+    while (true) {
+        cycle_count++;
+
+        // Prepare next-cycle copies
+        let if_id_next = {...if_id}; // default hold for stall
+        let id_ex_next = {valid:false, pc:0, rs1_val:0, rs2_val:0, imm:0, rd:0, rs1:0, rs2:0,
+                          opcode:0, funct3:0, funct7:0, reg_write:false, mem_read:false, mem_write:false,
+                          branch:false, is_jal:false, is_jalr:false};
+        let ex_mem_next = {valid:false, alu_result:0, rs2_val:0, rd:0, funct3:0,
+                           reg_write:false, mem_read:false, mem_write:false};
+        let mem_wb_next = {valid:false, rd:0, write_data:0, reg_write:false};
+
+        // Detect load-use hazard
+        let stall = false;
+        if (!draining) stall = detectLoadUseHazard();
+        if (stall) stall_count++;
+
+        // Reset flush
+        flush_signal = false;
+
+        // === WB ===
+        if (mem_wb.valid && mem_wb.reg_write && mem_wb.rd !== 0) {
+            x[mem_wb.rd] = toU32(mem_wb.write_data);
+            instr_count++;
+        }
+
+        // === MEM ===
+        if (ex_mem.valid) {
+            let data = ex_mem.alu_result;
+            if (ex_mem.mem_read)
+                data = loadMemory(mem, toU32(ex_mem.alu_result), ex_mem.funct3);
+            if (ex_mem.mem_write)
+                storeMemory(mem, toU32(ex_mem.alu_result), ex_mem.rs2_val, ex_mem.funct3);
+            mem_wb_next.rd = ex_mem.rd;
+            mem_wb_next.write_data = data;
+            mem_wb_next.reg_write = ex_mem.reg_write;
+            mem_wb_next.valid = true;
+            if (!ex_mem.reg_write) instr_count++;
+        }
+
+        // === EX ===
+        if (id_ex.valid) {
+            const op1 = toU32(forwardRs1());
+            const op2 = toU32(forwardRs2());
+            let alu_result = 0;
+            const opcode = id_ex.opcode;
+            const funct3 = id_ex.funct3;
+            const funct7 = id_ex.funct7;
+            const imm = id_ex.imm;
+
+            switch (opcode) {
+            case 0x33: alu_result = aluCompute(op1, op2, funct3, funct7, opcode); break;
+            case 0x13: alu_result = aluCompute(op1, toU32(imm), funct3, funct7, opcode); break;
+            case 0x03: alu_result = toU32(toI32(op1) + imm); break;
+            case 0x23: alu_result = toU32(toI32(op1) + imm); break;
+            case 0x63: {
+                if (evalBranch(op1, op2, funct3)) {
+                    flush_signal = true;
+                    flush_target = toU32(toI32(id_ex.pc) + imm);
+                }
+                break;
+            }
+            case 0x37: alu_result = toU32(imm); break;
+            case 0x17: alu_result = toU32(id_ex.pc + toU32(imm)); break;
+            case 0x6F:
+                alu_result = toU32(id_ex.pc + 4);
+                flush_signal = true;
+                flush_target = toU32(toI32(id_ex.pc) + imm);
+                break;
+            case 0x67:
+                alu_result = toU32(id_ex.pc + 4);
+                flush_signal = true;
+                flush_target = toU32(toI32(op1) + imm) & ~1;
+                break;
+            }
+
+            ex_mem_next.alu_result = alu_result;
+            ex_mem_next.rs2_val = op2;
+            ex_mem_next.rd = id_ex.rd;
+            ex_mem_next.funct3 = id_ex.funct3;
+            ex_mem_next.reg_write = id_ex.reg_write;
+            ex_mem_next.mem_read = id_ex.mem_read;
+            ex_mem_next.mem_write = id_ex.mem_write;
+            ex_mem_next.valid = true;
+        }
+
+        // Capture flush from EX
+        const flush = flush_signal;
+
+        if (!draining) {
+            // === ID ===
+            if (stall || flush || !if_id.valid) {
+                id_ex_next.valid = false;
+            } else {
+                const instr = if_id.instruction;
+                const opcode = instr & 0x7F;
+                if (instr === 0x73) {
+                    ecall_in_pipeline = true;
+                    id_ex_next.valid = false;
+                } else {
+                    id_ex_next.pc = if_id.pc;
+                    id_ex_next.opcode = opcode;
+                    id_ex_next.rd = getRd(instr);
+                    id_ex_next.rs1 = getRs1(instr);
+                    id_ex_next.rs2 = getRs2(instr);
+                    id_ex_next.funct3 = getFunct3(instr);
+                    id_ex_next.funct7 = getFunct7(instr);
+                    id_ex_next.imm = decodeImmediate(instr, opcode);
+                    id_ex_next.rs1_val = toU32(x[id_ex_next.rs1]);
+                    id_ex_next.rs2_val = toU32(x[id_ex_next.rs2]);
+                    id_ex_next.reg_write = (opcode===0x33||opcode===0x13||opcode===0x03||
+                                            opcode===0x37||opcode===0x17||opcode===0x6F||opcode===0x67);
+                    id_ex_next.mem_read = (opcode === 0x03);
+                    id_ex_next.mem_write = (opcode === 0x23);
+                    id_ex_next.branch = (opcode === 0x63);
+                    id_ex_next.is_jal = (opcode === 0x6F);
+                    id_ex_next.is_jalr = (opcode === 0x67);
+                    id_ex_next.valid = true;
+                }
+            }
+
+            // === IF ===
+            if (stall) {
+                // Hold if_id_next (already a copy)
+            } else if (flush) {
+                if_id_next.valid = false;
+            } else {
+                if (pc >= MAX_MEMORY * 4) {
+                    if_id_next.valid = false;
+                } else {
+                    if_id_next.instruction = memGetWord(mem, pc);
+                    if_id_next.pc = pc;
+                    if_id_next.valid = true;
+                    pc = toU32(pc + 4);
+                }
+            }
+        } else {
+            if_id_next.valid = false;
+            id_ex_next.valid = false;
+        }
+
+        // Redirect PC on flush
+        if (flush && !draining) {
+            pc = flush_target;
+            flush_count++;
+        }
+
+        // Advance pipeline registers
+        if (!stall) {
+            if_id = if_id_next;
+        }
+        id_ex = id_ex_next;
+        ex_mem = ex_mem_next;
+        mem_wb = mem_wb_next;
+
+        // ECALL drain logic
+        if (ecall_in_pipeline && !draining) {
+            draining = true;
+        }
+        if (draining) {
+            if (!id_ex.valid && !ex_mem.valid && !mem_wb.valid) break;
+        }
+        if (cycle_count >= MAX_CYCLES) break;
+    }
+
+    x[0] = 0;
+    const cpi = instr_count > 0 ? cycle_count / instr_count : 0;
+    return {
+        cycles: cycle_count,
+        instructions: instr_count,
+        stalls: stall_count,
+        flushes: flush_count,
+        cpi: cpi
+    };
+}
+
+// =====================================================================
+//  Dashboard Logic
+// =====================================================================
+let allResults = [];
+const chartInstances = {};
+
+function initSelect() {
+    const sel = document.getElementById('testSelect');
+    const names = Object.keys(TEST_BINARIES).sort();
+    names.forEach(n => {
+        const o = document.createElement('option');
+        o.value = n; o.textContent = n;
+        sel.appendChild(o);
+    });
+}
+
+function setStatus(msg) {
+    document.getElementById('status').textContent = msg;
+}
+
+function animatePipeline() {
+    const stages = ['ps-if','ps-id','ps-ex','ps-mem','ps-wb'];
+    stages.forEach(s => document.getElementById(s).classList.add('active'));
+    setTimeout(() => stages.forEach(s => document.getElementById(s).classList.remove('active')), 1200);
+}
+
+function runTest(name) {
+    const b64 = TEST_BINARIES[name];
+    const sc = runSingleCycle(b64);
+    const pl = runPipeline(b64);
+    return { name, sc, pl };
+}
+
+function runSelected() {
+    const name = document.getElementById('testSelect').value;
+    setStatus('Running ' + name + '...');
+    animatePipeline();
+    setTimeout(() => {
+        const r = runTest(name);
+        const idx = allResults.findIndex(x => x.name === name);
+        if (idx >= 0) allResults[idx] = r; else allResults.push(r);
+        allResults.sort((a,b) => a.name.localeCompare(b.name));
+        updateDashboard();
+        setStatus('Completed: ' + name + ' -- Pipeline CPI=' + r.pl.cpi.toFixed(2));
+    }, 10);
+}
+
+function runAllBenchmarks() {
+    setStatus('Running all benchmarks...');
+    animatePipeline();
+    setTimeout(() => {
+        allResults = [];
+        const names = Object.keys(TEST_BINARIES).sort();
+        names.forEach(n => allResults.push(runTest(n)));
+        updateDashboard();
+        setStatus('All ' + names.length + ' benchmarks completed.');
+    }, 10);
+}
+
+function updateDashboard() {
+    updateSummary();
+    updateTable();
+    updateCharts();
+}
+
+function updateSummary() {
+    document.getElementById('statTests').textContent = allResults.length;
+    if (allResults.length > 0) {
+        const totalCyc = allResults.reduce((s,r) => s + r.pl.cycles, 0);
+        const totalInstr = allResults.reduce((s,r) => s + r.pl.instructions, 0);
+        const avgCpi = totalInstr > 0 ? totalCyc / totalInstr : 0;
+        document.getElementById('statAvgCpi').textContent = avgCpi.toFixed(2);
+        document.getElementById('statTotalStalls').textContent = allResults.reduce((s,r) => s + r.pl.stalls, 0);
+        document.getElementById('statTotalFlushes').textContent = allResults.reduce((s,r) => s + r.pl.flushes, 0);
+    }
+}
+
+function updateTable() {
+    const tbody = document.getElementById('resultsBody');
+    tbody.innerHTML = '';
+    allResults.forEach(r => {
+        const tr = document.createElement('tr');
+        // Validation
+        let valHtml = '';
+        const exp = EXPECTED[r.name];
+        if (exp) {
+            const pass = exp.instructions === r.pl.instructions &&
+                         exp.cycles === r.pl.cycles &&
+                         exp.stalls === r.pl.stalls &&
+                         exp.flushes === r.pl.flushes &&
+                         Math.abs(exp.cpi - r.pl.cpi) < 0.015;
+            valHtml = pass ? '<span class="badge badge-pass">PASS</span>' : '<span class="badge badge-fail">FAIL</span>';
+        } else {
+            valHtml = '<span style="color:#71717a">--</span>';
+        }
+        tr.innerHTML = `
+            <td>${r.name}</td>
+            <td class="num">${r.sc.cycles}</td>
+            <td class="num">${r.sc.instructions}</td>
+            <td class="num">${r.pl.cycles}</td>
+            <td class="num">${r.pl.instructions}</td>
+            <td class="num">${r.pl.cpi.toFixed(2)}</td>
+            <td class="num">${r.pl.stalls}</td>
+            <td class="num">${r.pl.flushes}</td>
+            <td>${valHtml}</td>`;
+        tbody.appendChild(tr);
+    });
+}
+
+const chartColors = {
+    blue: '#60a5fa', purple: '#a78bfa', green: '#34d399', amber: '#fbbf24', red: '#f87171',
+    blueBg: 'rgba(96,165,250,0.7)', purpleBg: 'rgba(167,139,250,0.7)',
+    greenBg: 'rgba(52,211,153,0.7)', amberBg: 'rgba(251,191,36,0.7)', redBg: 'rgba(248,113,113,0.7)'
+};
+
+const chartDefaults = {
+    color: '#a1a1aa',
+    borderColor: '#2d2d3f',
+    font: { family: "'Segoe UI', system-ui, sans-serif" }
+};
+
+function makeChartOptions(title, yLabel) {
+    return {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+            legend: { labels: { color: '#a1a1aa', font: { size: 11 } } },
+            title: { display: false }
+        },
+        scales: {
+            x: { ticks: { color: '#71717a', font: {size:10}, maxRotation:45 }, grid: {color:'#1e1e2e'} },
+            y: { ticks: { color: '#71717a' }, grid: {color:'#1e1e2e'}, title:{display:!!yLabel,text:yLabel||'',color:'#71717a'} }
+        }
+    };
+}
+
+function updateCharts() {
+    const labels = allResults.map(r => r.name.split('/').pop());
+
+    // Cycles chart
+    if (chartInstances.cycles) chartInstances.cycles.destroy();
+    chartInstances.cycles = new Chart(document.getElementById('chartCycles'), {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [
+                { label: 'Single-Cycle', data: allResults.map(r => r.sc.cycles), backgroundColor: chartColors.blueBg, borderColor: chartColors.blue, borderWidth: 1 },
+                { label: 'Pipeline', data: allResults.map(r => r.pl.cycles), backgroundColor: chartColors.purpleBg, borderColor: chartColors.purple, borderWidth: 1 }
+            ]
+        },
+        options: makeChartOptions('Cycles', 'Cycles')
+    });
+
+    // CPI chart
+    if (chartInstances.cpi) chartInstances.cpi.destroy();
+    chartInstances.cpi = new Chart(document.getElementById('chartCpi'), {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [
+                { label: 'Single-Cycle CPI', data: allResults.map(() => 1.0), backgroundColor: chartColors.greenBg, borderColor: chartColors.green, borderWidth: 1 },
+                { label: 'Pipeline CPI', data: allResults.map(r => parseFloat(r.pl.cpi.toFixed(2))), backgroundColor: chartColors.amberBg, borderColor: chartColors.amber, borderWidth: 1 }
+            ]
+        },
+        options: makeChartOptions('CPI', 'CPI')
+    });
+
+    // Hazard breakdown
+    if (chartInstances.hazards) chartInstances.hazards.destroy();
+    chartInstances.hazards = new Chart(document.getElementById('chartHazards'), {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [
+                { label: 'Stalls', data: allResults.map(r => r.pl.stalls), backgroundColor: chartColors.amberBg, borderColor: chartColors.amber, borderWidth: 1 },
+                { label: 'Flushes', data: allResults.map(r => r.pl.flushes), backgroundColor: chartColors.redBg, borderColor: chartColors.red, borderWidth: 1 }
+            ]
+        },
+        options: {...makeChartOptions('Hazards', 'Count'), plugins:{...makeChartOptions().plugins, legend:{labels:{color:'#a1a1aa',font:{size:11}}}}}
+    });
+
+    // Overhead doughnut
+    const totalStalls = allResults.reduce((s,r) => s + r.pl.stalls, 0);
+    const totalFlushes = allResults.reduce((s,r) => s + r.pl.flushes, 0);
+    const totalUseful = allResults.reduce((s,r) => s + r.pl.instructions, 0);
+    const totalDrainFill = allResults.reduce((s,r) => s + Math.max(0, r.pl.cycles - r.pl.instructions - r.pl.stalls - r.pl.flushes * 2), 0);
+
+    if (chartInstances.overhead) chartInstances.overhead.destroy();
+    chartInstances.overhead = new Chart(document.getElementById('chartOverhead'), {
+        type: 'doughnut',
+        data: {
+            labels: ['Useful Cycles', 'Stall Cycles', 'Flush Cycles', 'Pipeline Fill/Drain'],
+            datasets: [{
+                data: [totalUseful, totalStalls, totalFlushes * 2, totalDrainFill],
+                backgroundColor: [chartColors.greenBg, chartColors.amberBg, chartColors.redBg, chartColors.purpleBg],
+                borderColor: ['#1a1a2e','#1a1a2e','#1a1a2e','#1a1a2e'],
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'right', labels: { color: '#a1a1aa', font: {size:11}, padding:12 } }
+            }
+        }
+    });
+}
+
+// =====================================================================
+//  Init
+// =====================================================================
+initSelect();
+window.addEventListener('load', () => {
+    setTimeout(runAllBenchmarks, 100);
+});
+</script>
+</body>
+</html>

@@ -26,6 +26,8 @@ static uint32_t flush_target;    /* new PC after flush */
 
 static uint32_t cycle_count;
 static uint32_t instr_count;     /* retired instructions */
+static uint32_t stall_count;
+static uint32_t flush_count;
 
 #define MAX_CYCLES 500000
 
@@ -468,7 +470,7 @@ static void stage_IF(bool stall, bool flush) {
  *  Main pipeline loop
  * ================================================================ */
 
-void run_pipeline(void) {
+PipelineStats run_pipeline(void) {
     /* Clear all pipeline registers */
     memset(&if_id,  0, sizeof(if_id));
     memset(&id_ex,  0, sizeof(id_ex));
@@ -479,6 +481,8 @@ void run_pipeline(void) {
     flush_signal      = false;
     cycle_count       = 0;
     instr_count       = 0;
+    stall_count       = 0;
+    flush_count       = 0;
 
     bool draining = false;
 
@@ -495,6 +499,7 @@ void run_pipeline(void) {
         bool stall = false;
         if (!draining)
             stall = detect_load_use_hazard();
+        if (stall) stall_count++;
 
         /* ---- Reset flush (EX may set it this cycle) ---- */
         flush_signal = false;
@@ -519,6 +524,7 @@ void run_pipeline(void) {
         /* ---- Redirect PC on flush ---- */
         if (flush && !draining) {
             pc = flush_target;
+            flush_count++;
         }
 
         /* ---- Advance pipeline registers ---- */
@@ -548,9 +554,20 @@ void run_pipeline(void) {
         }
     }
 
+    PipelineStats stats;
+    stats.cycles       = cycle_count;
+    stats.instructions = instr_count;
+    stats.stalls       = stall_count;
+    stats.flushes      = flush_count;
+    stats.cpi          = (instr_count > 0) ? (double)cycle_count / instr_count : 0.0;
+
     printf("\n=== Pipeline Statistics ===\n");
     printf("Cycles: %u\n", cycle_count);
     printf("Instructions retired: %u\n", instr_count);
+    printf("Stalls: %u\n", stall_count);
+    printf("Flushes: %u\n", flush_count);
     if (instr_count > 0)
-        printf("CPI: %.2f\n", (double)cycle_count / instr_count);
+        printf("CPI: %.2f\n", stats.cpi);
+
+    return stats;
 }
